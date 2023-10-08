@@ -1,0 +1,290 @@
+
+    private List<KanbanStatusIndex> listStatusIndex = new ArrayList<>();
+    private EntityReference<ServiceCompanyProfile> scRef;
+
+    public KanbanStatusSaveService(EntityReference<ServiceCompanyProfile> scRef) {
+        this.scRef = scRef;
+        listStatusIndex = getListKanbanStatus(scRef);
+        if (listStatusIndex.isEmpty()) {
+        }
+    }
+
+    public List<KanbanStatusRest> getListKanbanStatusRest() {
+        return mapEntityIndexToEntityRest(listStatusIndex);
+    }
+
+
+    public saveKanbanStatus(KanbanStatusRest kanbanStatusRest){
+        int targetIndex = kanbanStatusRest.getOrderNumber();
+
+        if(targetIndex < 0){
+            throw Xeption.forDeveloper("index must not be nagative");
+        }
+
+        if(kanbanStatusRest.getUid() == null){ //создание нового элемента
+            if (targetIndex == 0) {
+                saveNewStatusToBegin(kanbanStatusRest);
+                return;
+            }
+            if(targetIndex < listStatusIndex.size()){
+                // insert new status in the middle
+                saveNewStatusToMiddle(kanbanStatusRest);
+                return;
+            }
+            // save to end new status
+            saveNewStatusToEnd(kanbanStatusRest);
+            return;
+        }
+
+        checkOrderNumber(kanbanStatusRest); //проверяем индекс вставки и меняем на необходимый
+
+        //change status
+        if(targetIndex == 0){
+            //insert to start
+            insertToBegin(kanbanStatusRest);
+            return;
+        }else if( targetIndex == listStatusIndex.size()){
+            // insert to end
+            insertToEnd(kanbanStatusRest);
+            return;
+        }
+        //insert to position
+        insertToMiddle(kanbanStatusRest);
+        return;
+
+    }
+
+    private void insertToMiddle(KanbanStatusRest kanbanStatusRest) {
+
+        removeStatusOldPosition(kanbanStatusRest); //remove status from the old position
+        int targetIndex = kanbanStatusRest.getOrderNumber();
+        String nextStatusUid = getNextStatusUid(targetIndex);
+        String previousStatusUid = getPreviousStatusUid(targetIndex);
+
+        String newStatusUid = changeKanbanStatus(kanbanStatusRest);
+
+        changeNextStatus(nextStatusUid, newStatusUid); //меняем у бывшего первого
+        changePreviousStatus(previousStatusUid, newStatusUid); //меняем у бывшего первого
+    }
+
+    private void insertToBegin(KanbanStatusRest kanbanStatusRest) {
+        removeStatusOldPosition(kanbanStatusRest); //remove status from the old position
+        String oldFirstStatusUid = listStatusIndex.get(0).getSource().getUid();
+
+        String newStatusUid = changeKanbanStatus(kanbanStatusRest);
+
+        changeNextStatus(oldFirstStatusUid, newStatusUid); //меняем у бывшего первого
+    }
+
+    private void insertToEnd(KanbanStatusRest kanbanStatusRest) {
+        removeStatusOldPosition(kanbanStatusRest); //remove status from the old position
+        String oldEndStatusUid = listStatusIndex.get(listStatusIndex.size()-1).getSource().getUid();
+
+        String newStatusUid = changeKanbanStatus(kanbanStatusRest);
+
+        changePreviousStatus(oldEndStatusUid, newStatusUid); //меняем у бывшего первого
+    }
+
+
+    private String changeKanbanStatus(KanbanStatusRest kanbanStatusRest){
+        String nextStatusUid = getNextStatusUid(targetIndex);
+        String previousStatusUid = getPreviousStatusUid(targetIndex);
+
+        EntityContainer<KanbanStatus> kanbanStatus = EntityStorage.get().load(KanbanStatus.class, kanbanStatusRest.getUid());
+        kanbanStatus.getEntity().setDescription(kanbanStatusRest.getDescription());
+        kanbanStatus.getEntity().setServiceCompany(scRef);
+        kanbanStatus.getEntity().setActive(kanbanStatusRest.isActive());
+        kanbanStatus.getEntity().setName(kanbanStatusRest.getName());
+        kanbanStatus.getEntity().setPreviousKanbanStatusUid(previousStatusUid); //у нового предыдущая ссылка на последний из списка
+        kanbanStatus.getEntity().setNextKanbanStatusUid(nextStatusUid); //у нового последующая ссылка на последний из списка
+        String newStatusUid = EntityStorage.get()
+                .save(kanbanStatus, true).getUid();
+        return newStatusUid;
+    }
+
+
+
+
+
+
+
+
+    private void saveNewStatusToBegin(KanbanStatusRest kanbanStatusRest) {
+        int targetIndex = listStatusIndex.size();
+        String nextStatusUid = getNextStatusUid(targetIndex);
+
+        String newStatusUid = addKanbanStatus(kanbanStatusRest);
+
+        changeNextStatus(nextStatusUid, newStatusUid);
+    }
+
+    private void saveNewStatusToMiddle(KanbanStatusRest kanbanStatusRest) {
+        int targetIndex = listStatusIndex.size();
+        String previousStatusUid = getPreviousStatusUid(targetIndex);
+        String nextStatusUid = getNextStatusUid(targetIndex);
+
+        String newStatusUid = addKanbanStatus(kanbanStatusRest);
+
+        changePreviousStatus(previousStatusUid, newStatusUid);
+        changeNextStatus(nextStatusUid, newStatusUid);
+    }
+
+    private void saveNewStatusToEnd(KanbanStatusRest kanbanStatusRest) {
+        int targetIndex = listStatusIndex.size();
+        String previousStatusUid = getPreviousStatusUid(targetIndex);
+
+        String newStatusUid = addKanbanStatus(kanbanStatusRest);
+
+        changePreviousStatus(previousStatusUid, newStatusUid);
+    }
+
+
+
+    private String addKanbanStatus(KanbanStatusRest kanbanStatusRest){
+        String nextStatusUid = getNextStatusUid(targetIndex);
+        String previousStatusUid = getPreviousStatusUid(targetIndex);
+
+        EntityContainer<KanbanStatus> kanbanStatus = new EntityContainer<>(KanbanStatus.class);
+        kanbanStatus.getEntity().setDescription(kanbanStatusRest.getDescription());
+        kanbanStatus.getEntity().setServiceCompany(scRef);
+        kanbanStatus.getEntity().setActive(kanbanStatusRest.isActive());
+        kanbanStatus.getEntity().setName(kanbanStatusRest.getName());
+        kanbanStatus.getEntity().setPreviousKanbanStatusUid(previousStatusUid); //у нового предыдущая ссылка на последний из списка
+        kanbanStatus.getEntity().setNextKanbanStatusUid(nextStatusUid); //у нового последующая ссылка на последний из списка
+        String newStatusUid = EntityStorage.get()
+                .save(kanbanStatus, true).getUid();
+        return newStatusUid;
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+    private void checkOrderNumber(KanbanStatusRest kanbanStatusRest) {
+        int targetIndex = kanbanStatusRest.getOrderNumber();
+        if(targetIndex > listStatusIndex.size()){
+            kanbanStatusRest.setOrderNumber(listStatusIndex.size());
+        }
+    }
+
+    private void removeStatusOldPosition(KanbanStatusRest kanbanStatusRest){
+        EntityContainer<KanbanStatus> kanbanStatus = EntityStorage.get().load(KanbanStatus.class, kanbanStatusRest.getUid());
+        String nextUid = kanbanStatus.getEntity().getNextKanbanStatusUid(); //слудеющий элемент
+        String previousUid = kanbanStatus.getEntity().getPreviousKanbanStatusUid();//предыдущтй элемент
+        if(nextUid != null){
+            changeNextStatus(nextUid, previousUid);
+        }
+        if(previousUid != null){
+            changeNextStatus(previousUid, nextUid);
+        }
+    }
+
+
+
+
+
+
+
+
+    private void changeNextStatus(String nextStatusUid, String targetStatusUid) {//меняем у следующего статуса ссылку на вставленный статус
+        EntityContainer<KanbanStatus> kanbanStatus = EntityStorage.get().load(KanbanStatus.class, nextStatusUid);
+        kanbanStatus.getEntity().setPreviousKanbanStatusUid(targetStatusUid);
+        EntityStorage.get()
+                .save(kanbanStatus, true);
+    }
+
+    private void changePreviousStatus(String previousStatusUid, String targetStatusUid) { //меняем у предыдущего статуса ссылку на вставленный статус
+        EntityContainer<KanbanStatus> kanbanStatus = EntityStorage.get().load(KanbanStatus.class, previousStatusUid);
+        kanbanStatus.getEntity().setNextKanbanStatusUid(targetStatusUid);
+        EntityStorage.get()
+                .save(kanbanStatus, true);
+    }
+
+
+
+
+
+
+
+    private String getPreviousStatusUid(int targetIndex){
+        if(listStatusIndex.isEmpty()){ //если список пустой то первому эдементу ссылку на предыдущего ставим нулл
+            return null;
+        }else if(targetIndex == 0){ //если вставляем на место 0 элемента на предыдущего ставим нулл
+            return null;
+        }
+        return listStatusIndex.get(targetIndex -1).getSource().getUid(); //  получаем Uid предыдузего элемента
+    }
+
+    private String getNextStatusUid(int targetIndex){
+        if(listStatusIndex.isEmpty()) { //если список пустой то слудующему эдементу ссылку на предыдущего ставим нулл
+            return null;
+        }else if(targetIndex >= listStatusIndex.size()){ //если в ставляем в позицию 4
+            return null;
+        }
+        return listStatusIndex.get(targetIndex).getSource().getUid();
+    }
+
+
+
+
+
+    private List<KanbanStatusRest> mapEntityIndexToEntityRest(List<KanbanStatusIndex> list) {
+        List<KanbanStatusRest> result = new ArrayList<>();
+        IntStream.range(0, list.size())
+                .forEach(i -> {
+                    KanbanStatusIndex index = list.get(i);
+                    KanbanStatusRest rest = new KanbanStatusRest();
+                    rest.setDescription(index.getDescription());
+                    rest.setUid(index.getSource().getUid()); //todo
+                    rest.setActive(index.isActive());
+                    rest.setOrderNumber(i);
+                    rest.setName(index.getName());
+                    result.add(rest);
+                });
+        return result;
+    }
+
+    private List<KanbanStatusIndex> getListKanbanStatus(EntityReference<ServiceCompanyProfile> serviceCompanyReference) {
+        List<KanbanStatusIndex> listStatus = EntityStorage.get()
+                .search(KanbanStatusIndex.class, getQuery(serviceCompanyReference))
+                .getData();
+        if (listStatus.isEmpty()) {
+            return new ArrayList<>();
+        }
+        return sortListKanbanIndex(listStatus);
+    }
+
+    private SearchQuery getQuery(EntityReference<ServiceCompanyProfile> serviceCompanyReference) {
+        SearchQuery query = new SearchQuery();
+        query.getCriteria().getCriterions().add(SearchCriterion.eq(JobIndex.Property.serviceCompany.name(), serviceCompanyReference));
+        return query;
+    }
+
+
+    private List<KanbanStatusIndex> sortListKanbanIndex(List<KanbanStatusIndex> listKanbanStatusFromDb) {
+        List<KanbanStatusIndex> result = new ArrayList<>();
+        Optional<KanbanStatusIndex> firstStatusOptional = listKanbanStatusFromDb.stream().filter(x -> x.getPreviousKanbanStatusUid() == null).findFirst();
+        if (!firstStatusOptional.isPresent()) {
+            return result;
+        }
+        KanbanStatusIndex firstStatus = firstStatusOptional.get();
+        result.add(firstStatus);
+        while (firstStatus.getNextKanbanStatusUid() != null) {
+            KanbanStatusIndex priviousFirstStatus = firstStatus;
+            firstStatusOptional = listKanbanStatusFromDb.stream().filter(x -> priviousFirstStatus.getSource().getUid().equals(x.getPreviousKanbanStatusUid())).findFirst();
+            if (!firstStatusOptional.isPresent()) {
+                return result;
+            }
+            firstStatus = firstStatusOptional.get();
+            result.add(firstStatus);
+        }
+        return result;
+    }
